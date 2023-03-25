@@ -135,3 +135,166 @@ def show_gps(latitude, longitude, speed=None):
     gps_ax.set_ylabel('Longitude')
 
     return ax
+
+
+def _plot_curves(data, curves, detail, ax):
+    """
+    plot curves bound in ax. if curves is None, only adjust x-axis.
+
+    Parameters
+    ----------
+    data: pd.DataFrame
+        same as show_curves.
+    curevs: pd.DataFrame, optional
+        same as show_curves.
+    detail: int
+        further information atteched with bound.
+        0: (id: milage)
+        1: (id: radius)
+    ax : plt.Axes
+        the axes to plot onto.
+    """
+    ax.xaxis.set_major_formatter(mdates.ConciseDateFormatter(mdates.AutoDateLocator()))
+    ax.set_xlabel('time')
+    ax.set_xlim(data.index[0], data.index[-1])
+
+    if curves is None:
+        return
+
+    ax.plot(data.index, data.milage)
+    ax.set_ylabel('Milage / km')
+
+    milage = data.milage.to_numpy()
+    ascending = 1 if milage[-1] > milage[0] else -1
+    if ascending == -1:
+        milage = milage[::-1]
+
+    ymin, ymax = ax.get_ylim()
+    h = ymax - ymin
+    yh = ymin + 0.50 * h
+    yl = ymin + 0.25 * h
+
+    for i, c in curves.iterrows():
+        start, finish, radius = c[['start', 'finish', 'radius']]
+        s = ascending * np.searchsorted(milage, start)
+        f = ascending * np.searchsorted(milage, finish)
+        try:
+            st = data.index[s]
+            ft = data.index[f]
+        except IndexError:
+            continue
+
+        if st > ft:
+            st, ft = ft, st
+        ax.vlines(st, ymin, ymax, ls='-.', color='g')
+        ax.vlines(ft, ymin, ymax, ls=':', color='r')
+
+        if detail == 0:
+            ax.text(st, yh, f'({i}: {start:.2f})', ha='left')
+            ax.text(ft, yl, f'({i}: {finish:.2f})', ha='right')
+        elif detail == 1:
+            ax.text(st, yh, f'({i}: {radius:.0f})', ha='left')
+            ax.text(ft, yl, f'({i}: {radius:.0f})', ha='right')
+        else:
+            pass
+
+
+def show_curves(data, curves):
+    """
+    Show vertical and laterl force with curves bound. This is useful to check if the curves calculated
+    based on milage are correct.
+
+    Parameters
+    ----------
+    data : pd.DataFrame
+        data with its columns contans `LP`, `RP`, `LQ`, `RQ` and `milage`.
+    curves : pd.DataFrame
+        curves information with its columns caontan `start` and `finish`.
+
+    Returns
+    -------
+    ax: np.ndarray
+        the axes of plots.
+    """
+    fig, ax = plt.subplots(3, 1, sharex=True)
+
+    ax[0].plot(data.index, data.LP, data.index, data.RP)
+    ax[0].set_ylabel('Vertical Load / kN')
+
+    ax[1].plot(data.index, data.LQ, data.index, data.RQ)
+    ax[1].set_ylabel('Lateral Load / kN')
+
+    _plot_curves(data, curves, detail=0, ax=ax[2])
+
+    return ax
+
+
+def show_drh(samples, curves=None, title=None):
+    """
+    Show Derailment, Reduction Ratio, Laterl Force and vertical, laterl force.
+
+    Parameters
+    ----------
+    samples : pd.DataFrame
+        data with its columns contains `Q/P`, `DP/P`, `H`, `P` and `Q`.
+    curves : pd.DataFrame, optional
+        if presents, plot milage and curves information.
+    title : str, optional
+        the subtitle of each figure.
+
+    Returns
+    -------
+    figs: list[plt.Figure]
+        the list of figures.
+    """
+    figs = []
+    if curves is None:
+        fig, ax = plt.subplots(3, 1, sharex=True)
+    else:
+        fig, ax = plt.subplots(4, 1, sharex=True)
+    figs.append(fig)
+
+    kw = dict(ha='right', va='top')
+
+    ax[0].plot(samples.index, samples['Q/P'].abs())
+    ax[0].hlines([0.8, 1.0], *ax[0].get_xlim(), ls='--', colors=['g', 'r'])
+    ax[0].text(samples.index[-1], 0.8, r'$R > 400\mathrm{m}$', **kw)
+    ax[0].text(samples.index[-1], 1.0, r'$R\leq 400\mathrm{m}$', **kw)
+    ax[0].set_ylim(ymin=0)
+    ax[0].set_ylabel('Q/P')
+
+    ax[1].plot(samples.index, samples['DP/P'].abs())
+    ax[1].hlines([0.65, 0.80], *ax[1].get_xlim(),  ls='--', colors=['g', 'r'])
+    ax[1].text(samples.index[-1], 0.65, r'$v\leq 160\mathrm{km/h}$', **kw)
+    ax[1].text(samples.index[-1], 0.80, r'$v > 160\mathrm{km/h}$', **kw)
+    ax[1].set_ylim(ymin=0)
+    ax[1].set_ylabel(r'$\Delta$P/P')
+
+    hmax = 15 + samples['P'].mean() / 3
+    ax[2].plot(samples.index, samples['H'])
+    ax[2].set_ylabel('H / kN')
+    ax[2].hlines([hmax, -hmax], *ax[2].get_xlim(),  ls='--', colors='r')
+
+    _plot_curves(samples, curves, detail=1, ax=ax[-1])
+
+    if title:
+        fig.suptitle(title)
+
+    if curves is None:
+        fig, ax = plt.subplots(2, 1, sharex=True)
+    else:
+        fig, ax = plt.subplots(3, 1, sharex=True)
+    figs.append(fig)
+
+    ax[0].plot(samples.index, samples['P'])
+    ax[0].set_ylabel('P / kN')
+
+    ax[1].plot(samples.index, samples['Q'])
+    ax[1].set_ylabel('Q / kN')
+
+    _plot_curves(samples, curves, detail=1, ax=ax[-1])
+
+    if title:
+        fig.suptitle(title)
+
+    return figs

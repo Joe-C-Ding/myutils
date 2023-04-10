@@ -229,7 +229,33 @@ def show_curves(data, curves):
     return ax
 
 
-def show_drh(samples, curves=None, title=None):
+def _emphasize_abs(data, threshold, ax, *, abs_plot=True):
+    """
+    plot data, and marker the points that its absolute value is greater that threshold.
+    Parameters
+    ----------
+    data : pd.DataFrame
+        the data
+    threshold : float
+        the threshold
+    ax : plt.Axes
+        the axes to plot onto.
+    abs_plot : bool, default True
+        if False, the plot the original values instead of its absolute values.
+    """
+    if abs_plot:
+        abs = data.abs().to_numpy()
+        big = abs > threshold
+    else:
+        abs = data  # the variable name `abs` is a little bit confusing here.
+        big = abs.abs() > threshold
+
+    ax.plot(data.index, abs)
+    if np.any(big):
+        ax.plot(data.index[big], abs[big], 'rx')
+
+
+def show_drh(samples, curves=None, title=None, limit_d=(0.8, 1.0)):
     """
     Show Derailment, Reduction Ratio, Laterl Force and vertical, laterl force.
 
@@ -241,6 +267,8 @@ def show_drh(samples, curves=None, title=None):
         if presents, plot milage and curves information.
     title : str, optional
         the subtitle of each figure.
+    limit_d : tuple[float], default (0.8, 1.0).
+        the limit of derailtment in the form of (limit R > 400, limit R <= 400).
 
     Returns
     -------
@@ -256,14 +284,15 @@ def show_drh(samples, curves=None, title=None):
 
     kw = dict(ha='right', va='top')
 
-    ax[0].plot(samples.index, samples['Q/P'].abs())
-    ax[0].hlines([0.8, 1.0], *ax[0].get_xlim(), ls='--', colors=['g', 'r'])
-    ax[0].text(samples.index[-1], 0.8, r'$R > 400\mathrm{m}$', **kw)
-    ax[0].text(samples.index[-1], 1.0, r'$R\leq 400\mathrm{m}$', **kw)
+    _emphasize_abs(samples['Q/P'], limit_d[0], ax=ax[0])
+    ax[0].hlines(limit_d, *ax[0].get_xlim(), ls='--', colors=['g', 'r'])
+    ax[0].text(samples.index[-1], limit_d[0], r'$R > 400\mathrm{m}$', **kw)
+    ax[0].text(samples.index[-1], limit_d[1], r'$R\leq 400\mathrm{m}$', **kw)
     ax[0].set_ylim(ymin=0)
     ax[0].set_ylabel('Q/P')
 
-    ax[1].plot(samples.index, samples['DP/P'].abs())
+    # reduction ratio
+    _emphasize_abs(samples['DP/P'], 0.65, ax=ax[1])
     ax[1].hlines([0.65, 0.80], *ax[1].get_xlim(),  ls='--', colors=['g', 'r'])
     ax[1].text(samples.index[-1], 0.65, r'$v\leq 160\mathrm{km/h}$', **kw)
     ax[1].text(samples.index[-1], 0.80, r'$v > 160\mathrm{km/h}$', **kw)
@@ -271,7 +300,7 @@ def show_drh(samples, curves=None, title=None):
     ax[1].set_ylabel(r'$\Delta$P/P')
 
     hmax = 15 + samples['P'].mean() / 3
-    ax[2].plot(samples.index, samples['H'])
+    _emphasize_abs(samples['H'], hmax, ax=ax[2], abs_plot=False)
     ax[2].set_ylabel('H / kN')
     ax[2].hlines([hmax, -hmax], *ax[2].get_xlim(),  ls='--', colors='r')
 
@@ -298,3 +327,29 @@ def show_drh(samples, curves=None, title=None):
         fig.suptitle(title)
 
     return figs
+
+
+def show_lateral_stability(filtered, original=None, labels=None):
+    if original is None:
+        fig, ax = plt.subplots()
+    else:
+        fig, axs = plt.subplots(2, 1, sharex=True)
+        axs[0].plot(original.index, original)
+        axs[0].set_title('original')
+        axs[0].set_ylabel(r'm / s$^2$')
+        ax = axs[1]
+
+    ax.plot(filtered.index, filtered, label=labels)
+    ax.set_title('0.5--10 Hz bandpass')
+    ax.set_ylabel(r'm / s$^2$')
+    ax.set_xlabel('Time')
+    _plot_curves(filtered, None, 0, ax=ax)   # adjust x-axis
+
+    if labels:
+        ax.legend()
+
+    if original is None:
+        return ax
+    else:
+        return axs
+
